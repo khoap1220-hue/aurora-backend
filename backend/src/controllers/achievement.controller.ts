@@ -48,8 +48,8 @@ export class AchievementController {
 
       const newlyEarned = await AchievementService.checkAndAwardAchievements(
         req.user.id,
-        req.body ?? {},
-        req.user.email ? { email: req.user.email } : undefined
+        {},
+        req.user.email ? { email: req.user.email, firstName: req.user.firstName } : undefined
       );
 
       return res.status(200).json({
@@ -100,9 +100,12 @@ export class AchievementController {
         throw new NotFoundError('Achievement badge has not been earned yet');
       }
 
+      const recipientName =
+        [req.user.firstName, req.user.lastName].filter(Boolean).join(' ') || 'Aurora Learner';
+
       const certificate = BadgeService.generateCertificate(
         req.user.id,
-        req.user.email ?? 'Aurora Learner',
+        recipientName,
         achievementId,
         earned.earnedAt
       );

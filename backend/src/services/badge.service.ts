@@ -111,7 +111,8 @@ export class BadgeService {
     if (!email) return false;
     try {
       const body = BadgeService.formatCelebrationEmail(achievement);
-      await EmailNotifier.sendMotivationalEmail(email, firstName, body);
+      const subject = `Congratulations! You earned the "${achievement.name}" badge on Aurora`;
+      await EmailNotifier.sendMotivationalEmail(email, firstName, body, subject);
       return true;
     } catch (error) {
       logger.warn(`Failed to send achievement email for ${achievement.id}:`, error);

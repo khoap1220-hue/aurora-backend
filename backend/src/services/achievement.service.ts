@@ -9,8 +9,8 @@ import {
 } from '../models/interfaces/achievement.interfaces';
 import { BadgeService } from './badge.service';
 
-// In-memory store fallback when Prisma migrations for UserAchievement have not yet run
 const memoryUserAchievements = new Map<string, Map<string, UserAchievementRecord>>();
+const EARLY_ADOPTER_CUTOFF = new Date('2025-06-01T00:00:00.000Z');
 
 export class AchievementService {
   public static getCatalogDefinitions(): AchievementDefinition[] {
@@ -93,6 +93,14 @@ export class AchievementService {
     let currentStreak = 0;
     let longestStreak = 0;
     let questionsCompleted = 0;
+    let isEarlyAdopter = false;
+    let weekendLessons = 0;
+    let nightOwlLessons = 0;
+    let grammarQuestions = 0;
+    let vocabularyQuestions = 0;
+    let levelsCompleted = 0;
+    let consecutiveCorrect = 0;
+    let speedBonusCount = 0;
 
     try {
       const user = await prisma.user.findUnique({
@@ -101,26 +109,65 @@ export class AchievementService {
           totalXP: true,
           currentStreak: true,
           longestStreak: true,
+          createdAt: true,
         },
       });
       if (user) {
         totalXP = user.totalXP ?? 0;
         currentStreak = user.currentStreak ?? 0;
         longestStreak = user.longestStreak ?? 0;
+        if (user.createdAt && new Date(user.createdAt) <= EARLY_ADOPTER_CUTOFF) {
+          isEarlyAdopter = true;
+        }
       }
     } catch (err) {
       logger.debug('AchievementService.getUserSnapshot user lookup fallback:', err);
     }
 
     try {
-      const count = await (prisma as any).userQuestionXP?.count?.({
+      const xpRows = await prisma.userQuestionXP.findMany({
         where: { userId },
+        include: {
+          question: {
+            select: {
+              type: true,
+              difficulty: true,
+            },
+          },
+        },
+        orderBy: { awardedAt: 'asc' },
       });
-      if (typeof count === 'number') {
-        questionsCompleted = count;
+
+      if (Array.isArray(xpRows)) {
+        questionsCompleted = xpRows.length;
+        consecutiveCorrect = xpRows.length;
+        const levelCounts = new Map<string, number>();
+
+        for (const row of xpRows) {
+          const awardedAt = row.awardedAt ? new Date(row.awardedAt) : null;
+          if (awardedAt) {
+            const day = awardedAt.getUTCDay();
+            if (day === 0 || day === 6) weekendLessons += 1;
+            if (awardedAt.getUTCHours() >= 22) nightOwlLessons += 1;
+          }
+          if ((row.xpAwarded ?? 0) > 10) {
+            speedBonusCount += 1;
+          }
+          const qType = String(row.question?.type ?? '');
+          if (qType === 'SENTENCE_BUILDER' || qType === 'FILL_IN_BLANKS') {
+            grammarQuestions += 1;
+          } else if (qType === 'MULTIPLE_CHOICE' || qType === 'IDIOM_CHALLENGE') {
+            vocabularyQuestions += 1;
+          }
+          const diff = String(row.question?.difficulty ?? '');
+          if (diff) {
+            levelCounts.set(diff, (levelCounts.get(diff) ?? 0) + 1);
+          }
+        }
+        levelsCompleted = Array.from(levelCounts.values()).filter((c) => c >= 50).length;
       }
     } catch {
-      // fallback if userQuestionXP table is absent
+      // Fallback when question relation is unavailable
     }
 
     return {
@@ -129,15 +176,15 @@ export class AchievementService {
       currentStreak: overrides.currentStreak ?? currentStreak,
       longestStreak: overrides.longestStreak ?? longestStreak,
       questionsCompleted: overrides.questionsCompleted ?? questionsCompleted,
-      consecutiveCorrect: overrides.consecutiveCorrect,
-      speedBonusCount: overrides.speedBonusCount,
-      levelsCompleted: overrides.levelsCompleted,
-      grammarQuestions: overrides.grammarQuestions,
-      vocabularyQuestions: overrides.vocabularyQuestions,
-      isEarlyAdopter: overrides.isEarlyAdopter,
-      weekendLessons: overrides.weekendLessons,
-      nightOwlLessons: overrides.nightOwlLessons,
-      referralsCompleted: overrides.referralsCompleted,
+      consecutiveCorrect: overrides.consecutiveCorrect ?? consecutiveCorrect,
+      speedBonusCount: overrides.speedBonusCount ?? speedBonusCount,
+      levelsCompleted: overrides.levelsCompleted ?? levelsCompleted,
+      grammarQuestions: overrides.grammarQuestions ?? grammarQuestions,
+      vocabularyQuestions: overrides.vocabularyQuestions ?? vocabularyQuestions,
+      isEarlyAdopter: overrides.isEarlyAdopter ?? isEarlyAdopter,
+      weekendLessons: overrides.weekendLessons ?? weekendLessons,
+      nightOwlLessons: overrides.nightOwlLessons ?? nightOwlLessons,
+      referralsCompleted: overrides.referralsCompleted ?? 0,
     };
   }
 
@@ -146,7 +193,7 @@ export class AchievementService {
     const memoryRecords = userMap ? Array.from(userMap.values()) : [];
 
     try {
-      const dbRecords = await (prisma as any).userAchievement?.findMany?.({
+      const dbRecords = await prisma.userAchievement.findMany({
         where: { userId },
       });
       if (Array.isArray(dbRecords) && dbRecords.length > 0) {
@@ -175,7 +222,7 @@ export class AchievementService {
     userId: string,
     achievement: AchievementDefinition,
     progressValue: number
-  ): Promise<UserAchievementRecord> {
+  ): Promise<{ record: UserAchievementRecord; created: boolean }> {
     let userMap = memoryUserAchievements.get(userId);
     if (!userMap) {
       userMap = new Map<string, UserAchievementRecord>();
@@ -184,7 +231,7 @@ export class AchievementService {
 
     const existing = userMap.get(achievement.id);
     if (existing) {
-      return existing;
+      return { record: existing, created: false };
     }
 
     const record: UserAchievementRecord = {
@@ -196,44 +243,83 @@ export class AchievementService {
       isNotified: false,
     };
 
-    userMap.set(achievement.id, record);
-
     try {
-      await (prisma as any).userAchievement?.upsert?.({
-        where: {
-          userId_achievementId: {
-            userId,
-            achievementId: achievement.id,
+      await prisma.$transaction(async (tx) => {
+        await tx.achievement.upsert({
+          where: { id: achievement.id },
+          update: {
+            name: achievement.name,
+            description: achievement.description,
+            category: achievement.category,
+            requirementType: achievement.requirementType,
+            requirementValue: achievement.requirementValue,
+            xpBonus: achievement.xpBonus,
+            badgeUrl: achievement.badgeUrl,
+            rarity: achievement.rarity,
+            isActive: achievement.isActive,
           },
-        },
-        update: {
-          progressValue,
-        },
-        create: {
-          userId,
-          achievementId: achievement.id,
-          progressValue,
-          isNotified: false,
-        },
-      });
-    } catch {
-      // Ignore if table not migrated yet
-    }
-
-    if (achievement.xpBonus > 0) {
-      try {
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            totalXP: { increment: achievement.xpBonus },
+          create: {
+            id: achievement.id,
+            name: achievement.name,
+            description: achievement.description,
+            category: achievement.category,
+            requirementType: achievement.requirementType,
+            requirementValue: achievement.requirementValue,
+            xpBonus: achievement.xpBonus,
+            badgeUrl: achievement.badgeUrl,
+            rarity: achievement.rarity,
+            isActive: achievement.isActive,
           },
         });
-      } catch {
-        // Ignore in unit tests or when user record is mocked
-      }
-    }
 
-    return record;
+        await tx.userAchievement.create({
+          data: {
+            userId,
+            achievementId: achievement.id,
+            progressValue,
+            isNotified: false,
+          },
+        });
+
+        if (achievement.xpBonus > 0) {
+          await tx.user.update({
+            where: { id: userId },
+            data: {
+              totalXP: { increment: achievement.xpBonus },
+            },
+          });
+        }
+      });
+
+      userMap.set(achievement.id, record);
+      return { record, created: true };
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'P2002') {
+        const persisted = await prisma.userAchievement.findUnique({
+          where: {
+            userId_achievementId: {
+              userId,
+              achievementId: achievement.id,
+            },
+          },
+        });
+        const existingRecord: UserAchievementRecord = persisted
+          ? {
+              id: persisted.id,
+              userId: persisted.userId,
+              achievementId: persisted.achievementId,
+              earnedAt: new Date(persisted.earnedAt),
+              progressValue: persisted.progressValue,
+              isNotified: persisted.isNotified,
+            }
+          : record;
+        userMap.set(achievement.id, existingRecord);
+        return { record: existingRecord, created: false };
+      }
+
+      throw error;
+    }
   }
 
   public static async checkAndAwardAchievements(
@@ -258,12 +344,15 @@ export class AchievementService {
 
       const currentProgress = AchievementService.computeRequirementProgress(achievement, snapshot);
       if (currentProgress >= achievement.requirementValue) {
-        const record = await AchievementService.persistEarnedAchievement(
+        const { record, created } = await AchievementService.persistEarnedAchievement(
           userId,
           achievement,
           currentProgress
         );
         earnedSet.add(achievement.id);
+        if (!created) {
+          continue;
+        }
         newlyAwarded.push(achievement);
 
         if (notifyEmail?.email) {
@@ -286,7 +375,6 @@ export class AchievementService {
     userId: string,
     overrides: Partial<UserProgressSnapshot> = {}
   ) {
-    // Evaluate retroactive milestones first
     await AchievementService.checkAndAwardAchievements(userId, overrides);
 
     const snapshot = await AchievementService.getUserSnapshot(userId, overrides);

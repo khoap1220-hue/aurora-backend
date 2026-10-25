@@ -1,9 +1,43 @@
+jest.mock('../../lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    userQuestionXP: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    achievement: {
+      upsert: jest.fn().mockResolvedValue({}),
+    },
+    userAchievement: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    $transaction: jest.fn().mockImplementation(async (cb: any) =>
+      cb({
+        achievement: {
+          upsert: jest.fn().mockResolvedValue({}),
+        },
+        userAchievement: {
+          create: jest.fn().mockResolvedValue({}),
+        },
+        user: {
+          update: jest.fn().mockResolvedValue({}),
+        },
+      })
+    ),
+  },
+}));
+
 import { AchievementService } from '../achievement.service';
 import { BadgeService } from '../badge.service';
 
 describe('AchievementService & BadgeService (#51)', () => {
   beforeEach(() => {
     AchievementService.clearMemoryStoreForTests();
+    jest.clearAllMocks();
   });
 
   it('returns the full seeded catalog grouped by category', () => {
