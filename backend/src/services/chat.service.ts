@@ -1,6 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
 import { Topic } from "@prisma/client";
+import logger from "../core/config/logger";
 import serverSettings from "../core/config/settings";
 import { BadRequestError, InternalError } from "../core/api/ApiError";
 
@@ -84,6 +85,7 @@ export default class ChatService {
 
     const history: ConversationMessage[] = (input.conversationContext || [])
       .slice(-15)
+      .filter((item) => item.role === "user" || item.role === "assistant")
       .map((item) => ({
         role: item.role,
         content: ChatService.sanitizeText(item.content),
@@ -104,6 +106,14 @@ export default class ChatService {
     }
 
     try {
+      logger.info("Sending OpenAI chat completion request", {
+        userId: input.userId,
+        conversationId,
+        practiceLevel: level,
+        conversationType,
+        model,
+      });
+
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
@@ -127,6 +137,13 @@ export default class ChatService {
       }
 
       const usageData = response.data?.usage;
+      logger.info("OpenAI chat completion succeeded", {
+        userId: input.userId,
+        conversationId,
+        model,
+        totalTokens: usageData?.total_tokens ?? 0,
+      });
+
       return {
         response: ChatService.sanitizeText(aiText),
         conversationId,
@@ -148,8 +165,13 @@ export default class ChatService {
         throw err;
       }
       const status = err?.response?.status;
+      logger.error("OpenAI chat request failed", {
+        status,
+        code: err?.code,
+        providerError: err?.response?.data?.error?.type,
+      });
       if (status === 429) {
-        throw new BadRequestError("AI service rate limit or quota exceeded. Please try again shortly.");
+        throw new InternalError("AI service rate limit or quota exceeded. Please try again shortly.");
       }
       if (status === 401) {
         throw new InternalError("AI provider authentication failed");

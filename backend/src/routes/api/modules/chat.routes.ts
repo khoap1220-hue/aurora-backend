@@ -14,7 +14,7 @@ export const chatRateLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Too many chat requests from this user, please try again after a minute.",
+    message: "Too many chat requests from this IP address, please try again after a minute.",
   },
 });
 

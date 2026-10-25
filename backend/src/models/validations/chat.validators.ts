@@ -4,7 +4,7 @@ const practiceLevels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 const conversationTypes = ["general", "grammar", "vocabulary", "roleplay", "topic"] as const;
 
 const contextMessageSchema = Joi.object({
-  role: Joi.string().valid("user", "assistant", "system").required(),
+  role: Joi.string().valid("user", "assistant").required(),
   content: Joi.string().trim().min(1).max(2000).required(),
 });
 
