@@ -16,6 +16,10 @@ export interface ServerSettings {
     password: string;
   };
   auroraWebApp: {
-    baseUrl: string
-  }
+    baseUrl: string;
+  };
+  openai?: {
+    apiKey?: string;
+    model: string;
+  };
 }
