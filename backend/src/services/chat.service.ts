@@ -135,6 +135,10 @@ export default class ChatService {
       if (!aiText) {
         throw new InternalError("Empty response received from AI provider");
       }
+      const sanitizedAiText = ChatService.sanitizeText(aiText);
+      if (!sanitizedAiText) {
+        throw new InternalError("Empty response received from AI provider");
+      }
 
       const usageData = response.data?.usage;
       logger.info("OpenAI chat completion succeeded", {
@@ -145,7 +149,7 @@ export default class ChatService {
       });
 
       return {
-        response: ChatService.sanitizeText(aiText),
+        response: sanitizedAiText,
         conversationId,
         timestamp,
         practiceLevel: level,
