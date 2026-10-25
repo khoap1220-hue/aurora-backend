@@ -5,6 +5,7 @@ import walletRoutes from "./modules/wallet.routes";
 import questionRoutes from "./modules/question.routes";
 import gamificationRoutes from "./modules/gamification.routes";
 import topicRoutes from "./modules/topic.routes";
+import achievementRoutes from "./modules/achievement.routes";
 
 const apiRoutes = express.Router();
 
@@ -14,6 +15,7 @@ apiRoutes.use("/wallet", walletRoutes);
 apiRoutes.use("/questions", questionRoutes);
 apiRoutes.use("/gamification", gamificationRoutes);
 apiRoutes.use("/topics", topicRoutes);
+apiRoutes.use("/achievements", achievementRoutes);
 
 export default apiRoutes;
 

@@ -160,3 +160,33 @@ enum Category {
   BUSINESS
   CURRENT_EVENTS
 }
+
+model Achievement {
+  id               String            @id @default(uuid())
+  name             String
+  description      String?
+  category         String
+  requirementType  String            @map("requirement_type")
+  requirementValue Int               @map("requirement_value")
+  xpBonus          Int               @default(0) @map("xp_bonus")
+  badgeUrl         String?           @map("badge_url")
+  rarity           String            @default("common")
+  isActive         Boolean           @default(true) @map("is_active")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  achievementId String      @map("achievement_id")
+  earnedAt      DateTime    @default(now()) @map("earned_at")
+  progressValue Int         @default(0) @map("progress_value")
+  isNotified    Boolean     @default(false) @map("is_notified")
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId], map: "userId_achievementId")
+  @@map("user_achievements")
+}
