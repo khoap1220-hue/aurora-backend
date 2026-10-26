@@ -471,21 +471,43 @@ export class AchievementService {
   }
 
   public static async getAchievementLeaderboard(limit = 10) {
+    const mergedByUser = new Map<string, Set<string>>();
+
+    for (const [userId, recordsMap] of memoryUserAchievements.entries()) {
+      mergedByUser.set(userId, new Set(recordsMap.keys()));
+    }
+
+    try {
+      const dbRecords = await prisma.userAchievement.findMany({
+        select: { userId: true, achievementId: true },
+      });
+      if (Array.isArray(dbRecords)) {
+        for (const r of dbRecords) {
+          if (!mergedByUser.has(r.userId)) {
+            mergedByUser.set(r.userId, new Set());
+          }
+          mergedByUser.get(r.userId)!.add(r.achievementId);
+        }
+      }
+    } catch {
+      // Fallback to in-memory records when table is not migrated yet
+    }
+
     const entries: Array<{
       userId: string;
       totalEarned: number;
       totalBonusXP: number;
     }> = [];
 
-    for (const [userId, recordsMap] of memoryUserAchievements.entries()) {
+    for (const [userId, achievementIds] of mergedByUser.entries()) {
       let bonus = 0;
-      for (const rec of recordsMap.values()) {
-        const def = SEEDED_ACHIEVEMENTS.find((a) => a.id === rec.achievementId);
+      for (const achievementId of achievementIds) {
+        const def = SEEDED_ACHIEVEMENTS.find((a) => a.id === achievementId);
         if (def) bonus += def.xpBonus;
       }
       entries.push({
         userId,
-        totalEarned: recordsMap.size,
+        totalEarned: achievementIds.size,
         totalBonusXP: bonus,
       });
     }
