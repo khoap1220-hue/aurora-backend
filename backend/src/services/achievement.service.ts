@@ -140,7 +140,8 @@ export class AchievementService {
 
       if (Array.isArray(xpRows)) {
         questionsCompleted = xpRows.length;
-        consecutiveCorrect = xpRows.length;
+        // consecutiveCorrect needs an ordered attempt log that includes wrong answers.
+        // Leave it at 0 until that data source exists.
         const levelCounts = new Map<string, number>();
 
         for (const row of xpRows) {
