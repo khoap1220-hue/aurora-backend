@@ -364,6 +364,12 @@ export class AchievementService {
           );
           if (sent) {
             record.isNotified = true;
+            await prisma.userAchievement
+              .updateMany({
+                where: { userId, achievementId: achievement.id },
+                data: { isNotified: true },
+              })
+              .catch((err) => logger.warn('Failed to persist isNotified flag:', err));
           }
         }
       }
